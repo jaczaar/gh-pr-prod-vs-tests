@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "GitHub PR — Prod vs Tests",
+  "version": "0.1.0",
+  "description": "Splits GitHub PR diff stats into prod vs test code so reviewers can see real change size.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://github.com/*", "https://api.github.com/*"],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://github.com/*/pull/*",
+        "https://github.com/*/compare/*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
+  }
+}
