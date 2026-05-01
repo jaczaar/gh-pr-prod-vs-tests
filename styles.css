@@ -13,6 +13,23 @@
   z-index: 1000;
 }
 
+.gh-pvt-diffstat-replaced {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+}
+.gh-pvt-diffstat-replaced > .gh-pvt-breakdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.gh-pvt-pill > .gh-pvt-breakdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .gh-pvt-pill-floating {
   position: fixed;
   top: 70px;

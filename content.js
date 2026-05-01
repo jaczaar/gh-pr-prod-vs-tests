@@ -82,42 +82,36 @@ function summarize(files) {
   return { prodAdd, prodDel, testAdd, testDel, prodFiles, testFiles };
 }
 
-function findDiffstatAnchor() {
-  // 1. Anchor right next to whatever element shows GitHub's +X −Y diffstat.
-  const numberSelectors = [
+function findDiffstatNode() {
+  // Prefer GitHub's actual diffstat element so we can swap its inner content.
+  const selectors = [
     '.diffbar-item.diffstat',
     '.toc-diff-stats',
     '[data-testid="diffstat"]',
-    '[class*="diffstat"]',
     '[aria-label*="addition"][aria-label*="deletion"]',
     '[aria-label*="additions"][aria-label*="deletions"]',
-    '.gh-header-meta [aria-label*="addition"]',
-    'summary[aria-label*="addition"]',
-    'a.tabnav-tab[href$="/files"]',
-    'a[href$="/files"][data-tab-item*="files"]',
   ];
-  for (const sel of numberSelectors) {
+  for (const sel of selectors) {
     const el = document.querySelector(sel);
-    if (el) {
-      console.log('[gh-pvt] diffstat anchor:', sel);
-      return { el, mode: 'after' };
-    }
+    if (el) return el;
   }
-  // 2. Content-based fallback: any small element whose own text matches "+N -M".
+  // Content-based fallback: smallest element whose own text matches "+N −M".
   const re = /[+]\s*\d[\d,]*\s*[−\-]\s*\d[\d,]*/;
   const all = document.querySelectorAll(
     'header *, .gh-header-meta *, [data-testid*="header"] *, nav *, .tabnav *'
   );
+  let best = null;
   for (const el of all) {
     if (el.children.length > 4) continue;
     const t = el.textContent || '';
     if (t.length > 60) continue;
-    if (re.test(t)) {
-      console.log('[gh-pvt] content-matched anchor:', el);
-      return { el, mode: 'after' };
-    }
+    if (!re.test(t)) continue;
+    if (!best || t.length < (best.textContent || '').length) best = el;
   }
-  // 3. Fallback: append to PR header.
+  return best;
+}
+
+function findFallbackAnchor() {
   const headerSelectors = [
     '.gh-header-meta',
     '.gh-header-show',
@@ -127,63 +121,82 @@ function findDiffstatAnchor() {
   ];
   for (const sel of headerSelectors) {
     const el = document.querySelector(sel);
-    if (el) {
-      console.log('[gh-pvt] header anchor:', sel);
-      return { el, mode: 'append' };
-    }
+    if (el) return { el, mode: 'append' };
   }
-  console.warn('[gh-pvt] no anchor — using floating fallback');
   return { el: document.body, mode: 'floating' };
 }
 
-function renderHeaderPill(s) {
-  document.querySelector('#gh-pvt-pill')?.remove();
-
-  const { el: anchor, mode } = findDiffstatAnchor();
-  if (!anchor) return;
-
+function buildBreakdownHTML(s) {
   const totalDel = s.prodDel + s.testDel;
   const totalAdd = s.prodAdd + s.testAdd;
-
-  const pill = document.createElement('span');
-  pill.id = 'gh-pvt-pill';
-  pill.className = 'gh-pvt-pill' + (mode === 'floating' ? ' gh-pvt-pill-floating' : ' gh-pvt-pill-inline');
-  pill.title =
+  const title =
     `raw (prod): +${s.prodAdd} across ${s.prodFiles} file(s)\n` +
     `tests:      +${s.testAdd} across ${s.testFiles} file(s)\n` +
     `removals:   −${totalDel} (prod −${s.prodDel} · tests −${s.testDel})\n` +
     `\nsum: +${totalAdd} −${totalDel} (matches GitHub diff)`;
-  pill.innerHTML = `
-    <span class="gh-pvt-bar" aria-hidden="true">
-      <span class="gh-pvt-seg gh-pvt-bg-add"   style="flex:${s.prodAdd}"></span>
-      <span class="gh-pvt-seg gh-pvt-bg-test"  style="flex:${s.testAdd}"></span>
-      <span class="gh-pvt-seg gh-pvt-bg-del"   style="flex:${totalDel}"></span>
-    </span>
-    <span class="gh-pvt-chip gh-pvt-chip-raw">
-      <span class="gh-pvt-chip-label">raw</span>
-      <span class="gh-pvt-chip-num">+${s.prodAdd}</span>
-    </span>
-    <span class="gh-pvt-chip gh-pvt-chip-test">
-      <span class="gh-pvt-chip-label">tests</span>
-      <span class="gh-pvt-chip-num">+${s.testAdd}</span>
-    </span>
-    <span class="gh-pvt-chip gh-pvt-chip-del">
-      <span class="gh-pvt-chip-label">removals</span>
-      <span class="gh-pvt-chip-num">−${totalDel}</span>
+  return `
+    <span class="gh-pvt-breakdown" title="${title.replace(/"/g, '&quot;')}">
+      <span class="gh-pvt-bar" aria-hidden="true">
+        <span class="gh-pvt-seg gh-pvt-bg-add"   style="flex:${s.prodAdd}"></span>
+        <span class="gh-pvt-seg gh-pvt-bg-test"  style="flex:${s.testAdd}"></span>
+        <span class="gh-pvt-seg gh-pvt-bg-del"   style="flex:${totalDel}"></span>
+      </span>
+      <span class="gh-pvt-chip gh-pvt-chip-raw">
+        <span class="gh-pvt-chip-label">raw</span>
+        <span class="gh-pvt-chip-num">+${s.prodAdd}</span>
+      </span>
+      <span class="gh-pvt-chip gh-pvt-chip-test">
+        <span class="gh-pvt-chip-label">tests</span>
+        <span class="gh-pvt-chip-num">+${s.testAdd}</span>
+      </span>
+      <span class="gh-pvt-chip gh-pvt-chip-del">
+        <span class="gh-pvt-chip-label">removals</span>
+        <span class="gh-pvt-chip-num">−${totalDel}</span>
+      </span>
     </span>
   `;
-
-  placePill(pill, anchor, mode);
 }
 
-function placePill(pill, anchor, mode) {
-  if (mode === 'after') {
-    const parent = anchor.parentElement;
-    if (parent) parent.appendChild(pill);
-    else anchor.insertAdjacentElement('afterend', pill);
-  } else {
-    anchor.appendChild(pill);
+function summaryKey(s) {
+  return `${s.prodAdd}:${s.prodDel}:${s.testAdd}:${s.testDel}:${s.prodFiles}:${s.testFiles}`;
+}
+
+let lastSummary = null;
+
+let fallbackTimer = null;
+
+function renderBreakdown(s) {
+  lastSummary = s;
+  const node = findDiffstatNode();
+  if (node) {
+    if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
+    document.querySelector('#gh-pvt-pill')?.remove();
+    const key = summaryKey(s);
+    if (node.getAttribute('data-gh-pvt-replaced') === key) return;
+    node.innerHTML = buildBreakdownHTML(s);
+    node.setAttribute('data-gh-pvt-replaced', key);
+    node.classList.add('gh-pvt-diffstat-replaced');
+    return;
   }
+  // Diffstat may not be in the DOM yet on slow React renders. Wait briefly
+  // for the observer to catch it; only fall back to a pill if it never shows.
+  if (fallbackTimer) clearTimeout(fallbackTimer);
+  fallbackTimer = setTimeout(() => {
+    fallbackTimer = null;
+    if (findDiffstatNode()) { renderBreakdown(s); return; }
+    renderFallbackPill(s);
+  }, 1500);
+}
+
+function renderFallbackPill(s) {
+  document.querySelector('#gh-pvt-pill')?.remove();
+  const { el: anchor, mode } = findFallbackAnchor();
+  if (!anchor) return;
+  const pill = document.createElement('span');
+  pill.id = 'gh-pvt-pill';
+  pill.className = 'gh-pvt-pill' + (mode === 'floating' ? ' gh-pvt-pill-floating' : ' gh-pvt-pill-inline');
+  pill.innerHTML = buildBreakdownHTML(s);
+  anchor.appendChild(pill);
 }
 
 function decorateDiff(files) {
@@ -223,7 +236,8 @@ function decorateDiff(files) {
 
 function renderErrorPill(msg) {
   document.querySelector('#gh-pvt-pill')?.remove();
-  const { el: anchor, mode } = findDiffstatAnchor();
+  // On error we leave GitHub's native diffstat alone and just append a small notice.
+  const { el: anchor, mode } = findFallbackAnchor();
   if (!anchor) return;
   const pill = document.createElement('span');
   pill.id = 'gh-pvt-pill';
@@ -232,7 +246,7 @@ function renderErrorPill(msg) {
     (mode === 'floating' ? ' gh-pvt-pill-floating' : ' gh-pvt-pill-inline');
   pill.title = msg + '\n\n(click to open extension options)';
   pill.textContent = `prod·tests · ${msg}`;
-  placePill(pill, anchor, mode);
+  anchor.appendChild(pill);
 }
 
 async function run() {
@@ -247,7 +261,7 @@ async function run() {
       cache = { key, files: await fetchAllFiles(pr.owner, pr.repo, pr.number) };
       console.log(`[gh-pvt] fetched ${cache.files.length} files`);
     }
-    renderHeaderPill(summarize(cache.files));
+    renderBreakdown(summarize(cache.files));
     decorateDiff(cache.files);
   } catch (e) {
     console.warn('[gh-pvt]', e.message || e);
@@ -262,6 +276,7 @@ new MutationObserver(() => {
   if (location.href !== lastUrl) {
     lastUrl = location.href;
     cache = { key: '', files: null };
+    lastSummary = null;
     setTimeout(run, 400);
     return;
   }
@@ -269,6 +284,14 @@ new MutationObserver(() => {
     '[data-tagsearch-path]:not(.gh-pvt-test-file):not(.gh-pvt-prod-file)'
   )) {
     decorateDiff(cache.files);
+  }
+  // GitHub re-renders the diffstat node on tab switches / pjax — reapply.
+  if (lastSummary) {
+    const node = findDiffstatNode();
+    const key = summaryKey(lastSummary);
+    if (node && node.getAttribute('data-gh-pvt-replaced') !== key) {
+      renderBreakdown(lastSummary);
+    }
   }
 }).observe(document.body, { childList: true, subtree: true });
 
