@@ -18,6 +18,9 @@
   align-items: center;
   gap: 6px;
 }
+.gh-pvt-diffstat-hidden {
+  display: none !important;
+}
 .gh-pvt-diffstat-replaced > .gh-pvt-breakdown {
   display: inline-flex;
   align-items: center;

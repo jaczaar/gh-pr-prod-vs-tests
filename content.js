@@ -82,33 +82,40 @@ function summarize(files) {
   return { prodAdd, prodDel, testAdd, testDel, prodFiles, testFiles };
 }
 
+const DIFFSTAT_SELECTORS = [
+  '.diffbar-item.diffstat',
+  '.toc-diff-stats',
+  '[data-testid="diffstat"]',
+  '[aria-label*="addition"][aria-label*="deletion"]',
+  '[aria-label*="additions"][aria-label*="deletions"]',
+];
+
+function findAllDiffstatNodes() {
+  const set = new Set();
+  for (const sel of DIFFSTAT_SELECTORS) {
+    document.querySelectorAll(sel).forEach((el) => set.add(el));
+  }
+  if (set.size === 0) {
+    // Content-based fallback: smallest element whose own text matches "+N −M".
+    const re = /[+]\s*\d[\d,]*\s*[−\-]\s*\d[\d,]*/;
+    const all = document.querySelectorAll(
+      'header *, .gh-header-meta *, [data-testid*="header"] *, nav *, .tabnav *'
+    );
+    let best = null;
+    for (const el of all) {
+      if (el.children.length > 4) continue;
+      const t = el.textContent || '';
+      if (t.length > 60) continue;
+      if (!re.test(t)) continue;
+      if (!best || t.length < (best.textContent || '').length) best = el;
+    }
+    if (best) set.add(best);
+  }
+  return [...set];
+}
+
 function findDiffstatNode() {
-  // Prefer GitHub's actual diffstat element so we can swap its inner content.
-  const selectors = [
-    '.diffbar-item.diffstat',
-    '.toc-diff-stats',
-    '[data-testid="diffstat"]',
-    '[aria-label*="addition"][aria-label*="deletion"]',
-    '[aria-label*="additions"][aria-label*="deletions"]',
-  ];
-  for (const sel of selectors) {
-    const el = document.querySelector(sel);
-    if (el) return el;
-  }
-  // Content-based fallback: smallest element whose own text matches "+N −M".
-  const re = /[+]\s*\d[\d,]*\s*[−\-]\s*\d[\d,]*/;
-  const all = document.querySelectorAll(
-    'header *, .gh-header-meta *, [data-testid*="header"] *, nav *, .tabnav *'
-  );
-  let best = null;
-  for (const el of all) {
-    if (el.children.length > 4) continue;
-    const t = el.textContent || '';
-    if (t.length > 60) continue;
-    if (!re.test(t)) continue;
-    if (!best || t.length < (best.textContent || '').length) best = el;
-  }
-  return best;
+  return findAllDiffstatNodes()[0] || null;
 }
 
 function findFallbackAnchor() {
@@ -167,15 +174,24 @@ let fallbackTimer = null;
 
 function renderBreakdown(s) {
   lastSummary = s;
-  const node = findDiffstatNode();
-  if (node) {
+  const nodes = findAllDiffstatNodes();
+  if (nodes.length > 0) {
     if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
     document.querySelector('#gh-pvt-pill')?.remove();
     const key = summaryKey(s);
-    if (node.getAttribute('data-gh-pvt-replaced') === key) return;
-    node.innerHTML = buildBreakdownHTML(s);
-    node.setAttribute('data-gh-pvt-replaced', key);
-    node.classList.add('gh-pvt-diffstat-replaced');
+    const primary = nodes[0];
+    if (primary.getAttribute('data-gh-pvt-replaced') !== key) {
+      primary.innerHTML = buildBreakdownHTML(s);
+      primary.setAttribute('data-gh-pvt-replaced', key);
+      primary.classList.add('gh-pvt-diffstat-replaced');
+    }
+    // Hide any duplicate diffstat nodes (GitHub renders one in the PR header
+    // and another in the Files-changed tab nav). Showing the breakdown twice
+    // is noisy — keep the first, suppress the rest.
+    for (let i = 1; i < nodes.length; i++) {
+      nodes[i].classList.add('gh-pvt-diffstat-hidden');
+      nodes[i].setAttribute('data-gh-pvt-hidden', '1');
+    }
     return;
   }
   // Diffstat may not be in the DOM yet on slow React renders. Wait briefly
@@ -287,9 +303,11 @@ new MutationObserver(() => {
   }
   // GitHub re-renders the diffstat node on tab switches / pjax — reapply.
   if (lastSummary) {
-    const node = findDiffstatNode();
+    const nodes = findAllDiffstatNodes();
     const key = summaryKey(lastSummary);
-    if (node && node.getAttribute('data-gh-pvt-replaced') !== key) {
+    const primaryStale = nodes[0] && nodes[0].getAttribute('data-gh-pvt-replaced') !== key;
+    const duplicateUnhidden = nodes.slice(1).some((n) => !n.hasAttribute('data-gh-pvt-hidden'));
+    if (primaryStale || duplicateUnhidden) {
       renderBreakdown(lastSummary);
     }
   }
