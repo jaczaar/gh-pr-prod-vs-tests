@@ -90,6 +90,25 @@ const DIFFSTAT_SELECTORS = [
   '[aria-label*="additions"][aria-label*="deletions"]',
 ];
 
+const PAGEHEADER_SELECTORS = [
+  '.gh-header',
+  '.gh-header-meta',
+  '[data-component="PH_Title"]',
+  '[data-component^="PH_"]',
+  '[data-testid="pull-request-header"]',
+  '.UnderlineNav',
+  '.tabnav',
+  'nav[aria-label*="Pull request" i]',
+  'nav[aria-label*="Repository" i]',
+];
+
+function isInPageHeader(el) {
+  for (const sel of PAGEHEADER_SELECTORS) {
+    if (el.closest(sel)) return true;
+  }
+  return false;
+}
+
 function findAllDiffstatNodes() {
   const set = new Set();
   for (const sel of DIFFSTAT_SELECTORS) {
@@ -111,7 +130,15 @@ function findAllDiffstatNodes() {
     }
     if (best) set.add(best);
   }
-  return [...set];
+  // Prefer the diffstat inside the PR PageHeader / tab nav — keep that as the
+  // primary so the breakdown renders there, and let the rest get hidden.
+  const arr = [...set];
+  arr.sort((a, b) => {
+    const ah = isInPageHeader(a) ? 0 : 1;
+    const bh = isInPageHeader(b) ? 0 : 1;
+    return ah - bh;
+  });
+  return arr;
 }
 
 function findDiffstatNode() {
@@ -307,7 +334,17 @@ new MutationObserver(() => {
     const key = summaryKey(lastSummary);
     const primaryStale = nodes[0] && nodes[0].getAttribute('data-gh-pvt-replaced') !== key;
     const duplicateUnhidden = nodes.slice(1).some((n) => !n.hasAttribute('data-gh-pvt-hidden'));
-    if (primaryStale || duplicateUnhidden) {
+    // If a non-primary node still carries the replaced marker, the PageHeader
+    // diffstat just appeared and the previous primary is now a dupe — re-render.
+    const wrongPrimary = nodes.slice(1).some(
+      (n) => n.getAttribute('data-gh-pvt-replaced') === key
+    );
+    if (primaryStale || duplicateUnhidden || wrongPrimary) {
+      // Clear stale markers so renderBreakdown re-applies to the right node.
+      for (const n of nodes) {
+        n.removeAttribute('data-gh-pvt-replaced');
+        n.classList.remove('gh-pvt-diffstat-replaced');
+      }
       renderBreakdown(lastSummary);
     }
   }
